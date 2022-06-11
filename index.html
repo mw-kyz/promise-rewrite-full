@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  
+
+  <script>
+    // 解决链式调用的问题，外加实现catch，至此已经完全实现了Promise
+// 原生Promise的特点：
+// 通过return传递结果
+// catch 在 Promise 的源码层面上就是一个then， catch也是遵循 then的运行原则
+
+// 成功的条件
+// then return 普通的 javascript value
+// then return 新的promise成功态的结果 value
+// 失败的条件
+// then return 新的promise失败态的原因 reason
+// then 抛出了异常 throw new Error
+
+// promise 链式调用
+// javascript return this
+// then 不具备this ，需要返回一个新的 Promise，以达到链式调用
+
+const PENDING = 'PENDING',
+      FULFILLED = 'FULFILLED',
+      REJECTED = 'REJECTED'
+
+class MyPromise3 {
+  constructor (executor) {
+    this.status = PENDING
+    this.value = undefined
+    this.reason = undefined
+
+    // 收集成功回调函数，用于发布订阅（异步执行resolve/reject，多个promise.then）
+    this.onFulfilledCallbacks = []
+    // 收集失败回调函数，用于发布订阅（异步执行resolve/reject，多个promise.then）
+    this.onRejectedCallbacks = []
+    
+    const resolve = value => {
+      // 只有 PENDING 时才能修改状态
+      if (this.status === PENDING) {
+        // 更改成功状态及赋值
+        this.status = FULFILLED
+        this.value = value
+        // 统一执行成功回调（如果有的话），发布过程
+        this.onFulfilledCallbacks.forEach(fn => fn())
+      }
+    }
+
+    const reject = reason => {
+      // 只有 PENDING 时才能修改状态
+      if (this.status === PENDING) {
+        // 更改失败状态及赋值
+        this.status = REJECTED
+        this.reason = reason
+        // 统一执行失败回调（如果有的话），发布过程
+        this.onRejectedCallbacks.forEach(fn => fn())
+      }
+    }
+
+    // 运行执行器函数时，如果捕获到错误，直接reject
+    try {
+      executor(resolve, reject)
+    } catch (e) {
+      reject(e)
+    }
+  }
+
+  then (onFulfilled, onRejected) {
+    // 防止空调用，比如 then().then()....
+    // 如果onFulfilled存在，就继续，如果不存在，就需要将value传递下去，给下一个then
+    onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : (value => value)
+    // 如果onRejected存在，就继续，如果不存在，就需要将reason传递下去，注意，需要使用抛出错误的方式，给下一个then或catch
+    onRejected = typeof onRejected === 'function' ? onRejected : (reason => { throw reason })
+    // onFulfilled 和 onRejected 不存在的话，重写的 onFulfilled 和 onRejected 如下，这样就可以传递给下一个 then 了
+    // then(value => {
+    //   return value
+    // }, reason => {
+    //   throw reason
+    // })
+    let promise2 = new MyPromise3((resolve, reject) => {
+      // 如果状态为FULFILLED，说明已经resolve了，直接执行成功回调
+      if (this.status === FULFILLED) {
+        // 需使用异步，resolvePromise 才能拿到 promise2，源码肯定使用的微任务，此处用宏任务代替
+        setTimeout(() => {
+          try {
+            // x有可能是普通值或者promise对象
+            let x = onFulfilled(this.value)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (e) {
+            reject(e)
+          }
+        }, 0)
+      }
+      // 如果状态为REJECTED，说明已经reject了，直接执行失败回调
+      if (this.status === REJECTED) {
+        // 需使用异步，resolvePromise 才能拿到 promise2，源码肯定使用的微任务，此处用宏任务代替
+        setTimeout(() => {
+          try {
+            // x有可能是普通值或者promise对象
+            let x = onRejected(this.reason)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (e) {
+            reject(e)
+          }
+        }, 0)
+      }
+      // 如果状态为PENDING, 说明现在是异步状态，resolve和reject都尚未执行
+      if (this.status === PENDING) {
+        // 收集成功回调，订阅过程
+        this.onFulfilledCallbacks.push(() => {
+          // 此处不需使用setTimeout，因为本身是pending状态，只有resolve时此处才会执行
+          try {
+            // x有可能是普通值或者promise对象
+            let x = onFulfilled(this.value)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (e) {
+            reject(e)
+          }
+        })
+        // 收集失败回调，订阅过程
+        this.onRejectedCallbacks.push(() => {
+          // 此处不需使用setTimeout，因为本身是pending状态，只有rejecte时此处才会执行
+          try {
+            // x有可能是普通值或者promise对象
+            let x = onRejected(this.reason)
+            resolvePromise(promise2, x, resolve, reject)
+          } catch (e) {
+            reject(e)
+          }
+        })
+      }
+    })
+
+    return promise2
+  }
+
+  catch (errorCallback) {
+    // catch 其实本身就是 then 的一个语法糖
+    return this.then(null, errorCallback)
+  }
+}
+
+function resolvePromise(promise2, x, resolve, reject) {
+  // 防止以下情况发生
+  // const promise1 = promise.then((value) => {
+  //   return promise1
+  // })
+  if (promise2 === x) {
+    return reject(new TypeError('Chaining cycle detected for promise #<MyPromise>'))
+  }
+
+  let called = false
+
+  // x为对象或者函数，都有可能是promise对象
+  if ((typeof x === 'object' && x !== null) || typeof x === 'function') {
+    // x.then有可能在get中被拦截并抛出错误(Object.defineProperty)，此时直接reject
+    try {
+      debugger
+      let then = x.then // 可能被拦截抛出错误
+      // then为函数，就可以认为x是promise对象
+      if (typeof then === 'function') {
+        // 需要通过call改变this指向
+        then.call(x, (y) => {
+          // 防止重复执行，但是不知道什么情况下会发生重复执行，只是 PromiseA+规范里面这么写了
+          if (called) return
+          called = true
+          // 需递归处理，因为resolve里面可能也是一个promise对象
+          resolvePromise(promise2, y, resolve, reject)
+        }, (r) => {
+          // 防止重复执行，但是不知道什么情况下会发生重复执行，只是 PromiseA+规范里面这么写了
+          if (called) return
+          called = true
+          // reject不需要递归处理，如果reject一个promise对象，那就直接返回一个promise对象，原版Promise也是这么做的
+          reject(r)
+        })
+      } else {
+        // x 如果为普通值，直接resolve
+        resolve(x)
+      }
+    } catch (e) {
+      // 防止重复执行，但是不知道什么情况下会发生重复执行，只是 PromiseA+规范里面这么写了
+      if (called) return
+      called = true
+      reject(e)
+    }
+  } else {
+    // x 如果为普通值，直接resolve
+    resolve(x)
+  }
+}
+
+// 将返回值伪造为promise对象
+const promise111 = new MyPromise3((resolve, reject) => {
+  resolve(111)
+})
+
+promise111.then(res => {
+  console.log(res) // 111
+  return {
+    // 故意钻源码的空子，让它误判断返回是一个promise对象，这会导致后面的then不执行，因为一直是 PENDING 状态
+    // 源码中执行到 then.call(...) 就结束了，走不到 then 的回调参数里面（因为这个假的 then 没有回调参数，如果是真的 then，即使没有传回调参数，源码里也会自动生成回调参数，就算假的 then 有回调参数，也没有执行回调参数的逻辑，所以传了也相当于没传），所以也无法更改状态，一直是 PENDING，所以后面的真then的回调参数无法执行
+    then: function () {
+      console.log(res, 222) // 111, 222
+    }
+  }
+}).then(resolve => {
+  console.log(resolve, 333) // 无法执行
+}, err => {
+  console.log(err, 666) // 无法执行
+})
+  </script>
+</body>
+</html>

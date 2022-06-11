@@ -1,0 +1,20 @@
+{
+  "name": "promise-rewrite",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon ./index.js -i ./data/",
+    "test": "promises-aplus-tests ./MyPromise/promise3.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^2.0.15",
+    "promises-aplus-tests": "^2.1.2"
+  },
+  "dependencies": {
+    "bluebird": "^3.7.2"
+  }
+}
