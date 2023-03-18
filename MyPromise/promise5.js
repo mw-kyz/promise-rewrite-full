@@ -17,6 +17,8 @@ class MyPromise5 {
     
     const resolve = value => {
       // 如果直接 resolve 一个 Promise 对象
+      // 需要单独处理，后面的 resolvePromise 方法处理的是then成功回调返回的 promise 对象
+      // 处理不到此处 resolve 直接传进来的 promise 对象，所以此处需要单独处理
       if (value instanceof MyPromise5) {
         // 这里只需要调用一次then
         // 传入的成功回调为 resolve，如果接下来还是 Promise 对象，会再次触发此段逻辑，相当于递归
